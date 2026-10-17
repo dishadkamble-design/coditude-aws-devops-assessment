@@ -1,0 +1,79 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Coditude PostgreSQL RDS database
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+
+  PrivateSubnetAId:
+    Type: AWS::EC2::Subnet::Id
+
+  PrivateSubnetBId:
+    Type: AWS::EC2::Subnet::Id
+
+  DatabaseSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, prod]
+
+Resources:
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private database subnets
+      SubnetIds:
+        - !Ref PrivateSubnetAId
+        - !Ref PrivateSubnetBId
+
+  PostgreSQLDatabase:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      Engine: postgres
+      DBInstanceIdentifier: !Sub '${Environment}-coditude-postgres'
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      StorageType: gp3
+      StorageEncrypted: true
+      DBName: taskdb
+      MasterUsername: dbadmin
+      ManageMasterUserPassword: true
+      PubliclyAccessible: false
+      MultiAZ: !If [IsProduction, true, false]
+      BackupRetentionPeriod: !If [IsProduction, 7, 1]
+      DeletionProtection: !If [IsProduction, true, false]
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DatabaseSecurityGroupId
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  DatabaseEndpoint:
+    Description: PostgreSQL database hostname
+    Value: !GetAtt PostgreSQLDatabase.Endpoint.Address
+
+  DatabasePort:
+    Value: !GetAtt PostgreSQLDatabase.Endpoint.Port
+
+  DatabaseSecretArn:
+    Description: AWS-managed database credentials secret
+    Value: !GetAtt PostgreSQLDatabase.MasterUserSecret.SecretArn
