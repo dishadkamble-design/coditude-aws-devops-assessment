@@ -3,6 +3,18 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Coditude non-containerized EC2 application infrastructure
 
 Parameters:
+  DatabaseSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security group ID of the PostgreSQL database
+
+  DatabaseSecretArn:
+    Type: String
+    Description: ARN of the RDS database secret in AWS Secrets Manager
+
+  DatabaseEndpoint:
+    Type: String
+    Description: RDS PostgreSQL database endpoint hostname  
+  
   Environment:
     Type: String
     AllowedValues:
@@ -51,6 +63,18 @@ Resources:
           ToPort: 8000
           SourceSecurityGroupId: !Ref ALBSecurityGroup
 
+   
+  EC2DatabaseIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DatabaseSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref EC2SecurityGroup
+      Description: Allow PostgreSQL access from EC2 application
+
+
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -74,7 +98,15 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-
+      Policies:
+        - PolicyName: ReadDatabaseSecret
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref DatabaseSecretArn
   EC2InstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -86,9 +118,13 @@ Resources:
     Properties:
       LaunchTemplateData:
         UserData:
-          Fn::Base64: |
+          Fn::Base64: !Sub |
             #!/bin/bash
-            echo "EC2 bootstrap started" > /var/log/coditude-bootstrap.log
+            set -e
+            dnf install -y git
+            curl -fsSL https://raw.githubusercontent.com/dishadkamble-design/coditude-aws-devops-assessment/main/infrastructure/ec2/user-data.sh -o /tmp/coditude-user-data.sh
+            DATABASE_SECRET_ARN='${DatabaseSecretArn}' DB_HOST='${DatabaseEndpoint}' bash /tmp/coditude-user-data.sh
+
         ImageId: !Ref AmiId
         InstanceType: !Ref InstanceType
         IamInstanceProfile:
