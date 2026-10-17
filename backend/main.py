@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql+psycopg://app:app@db:5432/tasks')
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
