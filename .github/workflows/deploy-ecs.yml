@@ -1,0 +1,129 @@
+
+name: Deploy Application to ECS
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ecs-deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and Deploy ECS
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    env:
+      AWS_REGION: ap-south-1
+      ENVIRONMENT: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE="$REGISTRY/coditude-backend:$GITHUB_SHA"
+          docker build -t "$IMAGE" ./backend
+          docker push "$IMAGE"
+          echo "BACKEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Build and push frontend image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+        run: |
+          IMAGE="$REGISTRY/coditude-frontend:$GITHUB_SHA"
+          docker build \
+            --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
+            -t "$IMAGE" ./frontend
+          docker push "$IMAGE"
+          echo "FRONTEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      
+      - name: Deploy backend to ECS
+        env:
+          IMAGE: ${{ env.BACKEND_IMAGE }}
+        run: |
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition "$ENVIRONMENT-coditude-backend" \
+            --query taskDefinition --output json)
+
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \
+            --arg IMAGE "$IMAGE" \
+            'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)
+             | .containerDefinitions |= map(if .name == "backend" then .image = $IMAGE else . end)')
+
+          NEW_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "$NEW_TASK_DEF" \
+            --query taskDefinition.taskDefinitionArn \
+            --output text)
+
+          aws ecs update-service \
+            --cluster "$ENVIRONMENT-coditude-cluster" \
+            --service "$ENVIRONMENT-coditude-backend" \
+            --task-definition "$NEW_ARN"
+
+          aws ecs wait services-stable \
+            --cluster "$ENVIRONMENT-coditude-cluster" \
+            --services "$ENVIRONMENT-coditude-backend"
+
+      - name: Deploy frontend to ECS
+        env:
+          IMAGE: ${{ env.FRONTEND_IMAGE }}
+        run: |
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition "$ENVIRONMENT-coditude-frontend" \
+            --query taskDefinition --output json)
+
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \
+            --arg IMAGE "$IMAGE" \
+            'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)
+             | .containerDefinitions |= map(if .name == "frontend" then .image = $IMAGE else . end)')
+
+          NEW_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "$NEW_TASK_DEF" \
+            --query taskDefinition.taskDefinitionArn \
+            --output text)
+
+          aws ecs update-service \
+            --cluster "$ENVIRONMENT-coditude-cluster" \
+            --service "$ENVIRONMENT-coditude-frontend" \
+            --task-definition "$NEW_ARN"
+
+          aws ecs wait services-stable \
+            --cluster "$ENVIRONMENT-coditude-cluster" \
+            --services "$ENVIRONMENT-coditude-frontend"
+
+      - name: Deploy frontend to ECS
+        run: |
+          aws ecs update-service \
+            --cluster "$ENVIRONMENT-coditude-cluster" \
+            --service "$ENVIRONMENT-coditude-frontend" \
+            --force-new-deployment
