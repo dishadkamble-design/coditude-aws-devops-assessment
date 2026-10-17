@@ -57,7 +57,7 @@ jobs:
       - name: Build and push frontend image
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+        API_URL: ""
         run: |
           IMAGE="$REGISTRY/coditude-frontend:$GITHUB_SHA"
           docker build \
@@ -120,10 +120,3 @@ jobs:
           aws ecs wait services-stable \
             --cluster "$ENVIRONMENT-coditude-cluster" \
             --services "$ENVIRONMENT-coditude-frontend"
-
-      - name: Deploy frontend to ECS
-        run: |
-          aws ecs update-service \
-            --cluster "$ENVIRONMENT-coditude-cluster" \
-            --service "$ENVIRONMENT-coditude-frontend" \
-            --force-new-deployment
