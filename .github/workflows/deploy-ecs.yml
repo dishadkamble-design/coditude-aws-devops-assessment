@@ -2,6 +2,12 @@
 name: Deploy Application to ECS
 
 on:
+  # push:
+  #  branches:
+  #    - main
+  #  paths:
+  #    - 'frontend/**'
+  #    - 'backend/**'
   workflow_dispatch:
     inputs:
       environment:
@@ -18,18 +24,51 @@ permissions:
   contents: read
 
 concurrency:
-  group: ecs-deploy-${{ inputs.environment }}
+  group: ecs-deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'dev' }}
   cancel-in-progress: false
 
 jobs:
+  validate:
+    name: Validate Application
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Validate backend Python syntax
+        run: python -m compileall -q backend
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
   deploy:
+    needs: validate
     name: Build and Deploy ECS
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'dev' }}
 
     env:
       AWS_REGION: ap-south-1
-      ENVIRONMENT: ${{ inputs.environment }}
+      ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'dev' }}
 
     steps:
       - name: Checkout repository
@@ -57,7 +96,7 @@ jobs:
       - name: Build and push frontend image
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        API_URL: ""
+          API_URL: ""
         run: |
           IMAGE="$REGISTRY/coditude-frontend:$GITHUB_SHA"
           docker build \
