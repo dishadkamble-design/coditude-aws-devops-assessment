@@ -1,0 +1,68 @@
+name: Deploy AWS Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: infrastructure-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate CloudFormation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install cfn-lint
+        run: pip install cfn-lint
+
+      - name: Validate CloudFormation templates
+        run: cfn-lint -t infrastructure/*.yaml infrastructure/ec2/ec2.yaml infrastructure/cicd/pipeline.yaml -r ap-south-1
+
+  deploy:
+    name: Deploy CloudFormation
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Deployment instructions
+        run: |
+          echo "CloudFormation validation completed."
+          echo "Target environment: ${{ inputs.environment }}"
+          echo "Infrastructure deployment requires stack parameters,"
+          echo "dependency ordering, and AWS resource configuration."
+          echo "No CloudFormation stacks are changed by this workflow."
