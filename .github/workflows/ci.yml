@@ -69,4 +69,4 @@ jobs:
         run: pip install cfn-lint
 
       - name: Validate CloudFormation templates
-        run: cfn-lint -t infrastructure/*.yaml infrastructure/ec2/ec2.yaml -r ap-south-1
+        run: cfn-lint -t infrastructure/*.yaml infrastructure/ec2/ec2.yaml infrastructure/cicd/pipeline.yaml -r ap-south-1
