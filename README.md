@@ -168,8 +168,8 @@ Runtime deployment verification remains pending.
 ### CI/CD Workflows
 
 - [Continuous Integration](.github/workflows/ci.yml) â€” Application build checks and CloudFormation validation.
-- [ECS Application Deployment](.github/workflows/deploy-ecs.yml) â€” Manual ECS container deployment workflow.
-- [Infrastructure Validation Workflow](.github/workflows/deploy-infra.yml) â€” Manual CloudFormation validation and AWS identity verification; actual stack deployment is not implemented.
+- [ECS Application Deployment](.github/workflows/deploy-ecs.yml) — Automatically triggered by frontend/backend changes; manual deployment also supported.
+- [Infrastructure Deployment Workflow](.github/workflows/deploy-infra.yml) — Manual CloudFormation deployment for dev, staging, and prod; AWS configuration required.
 
 ### EC2 Application Deployment
 
@@ -185,5 +185,6 @@ Runtime deployment verification remains pending.
 - Run the ECS application workflow to build and push images to ECR.
 - Deploy the ECS infrastructure after images are available.
 - Subsequent application deployments update ECS services without redeploying infrastructure.
+
 
 
