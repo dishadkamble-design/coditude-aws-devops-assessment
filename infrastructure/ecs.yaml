@@ -264,6 +264,9 @@ Resources:
 Outputs:
   LoadBalancerDNS:
     Value: !GetAtt ApplicationLoadBalancer.DNSName
+  BackendServiceName:
+    Description: Backend ECS service name for CodePipeline
+    Value: !GetAtt BackendService.Name
 
   ECSClusterName:
     Value: !Ref ECSCluster
