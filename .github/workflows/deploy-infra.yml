@@ -306,3 +306,42 @@ jobs:
               TargetGroupFullName="${{ steps.monitoring_outputs.outputs.BackendTargetGroupFullName }}" \
               AlertEmail="$ALERT_EMAIL" \
             --no-fail-on-empty-changeset
+
+      - name: Read ECS CodePipeline Outputs
+        id: pipeline_outputs
+        run: |
+          for KEY in ECSClusterName BackendServiceName; do
+            VALUE=$(aws cloudformation describe-stacks \
+              --stack-name "${{ inputs.environment }}-coditude-ecs" \
+              --query "Stacks[0].Outputs[?OutputKey=='${KEY}'].OutputValue | [0]" \
+              --output text)
+
+            if [ -z "$VALUE" ] || [ "$VALUE" = "None" ]; then
+              echo "ERROR: Missing ECS output $KEY"
+              exit 1
+            fi
+
+            echo "${KEY}=${VALUE}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Deploy AWS CodePipeline stack
+        env:
+          CONNECTION_ARN: ${{ vars.CODECONNECTION_ARN }}
+          ARTIFACT_BUCKET: ${{ vars.ARTIFACT_BUCKET_NAME }}
+        run: |
+          if [ -z "$CONNECTION_ARN" ] || [ -z "$ARTIFACT_BUCKET" ]; then
+            echo "ERROR: GITHUB_CONNECTION_ARN and ARTIFACT_BUCKET_NAME are required."
+            exit 1
+          fi
+
+          aws cloudformation deploy \
+            --template-file infrastructure/cicd/pipeline.yaml \
+            --stack-name "${{ inputs.environment }}-coditude-pipeline" \
+            --capabilities CAPABILITY_IAM \
+            --parameter-overrides \
+              Environment="${{ inputs.environment }}" \
+              GitHubConnectionArn="$CONNECTION_ARN" \
+              ArtifactBucketName="$ARTIFACT_BUCKET" \
+              EcsClusterName="${{ steps.pipeline_outputs.outputs.ECSClusterName }}" \
+              BackendEcsServiceName="${{ steps.pipeline_outputs.outputs.BackendServiceName }}" \
+            --no-fail-on-empty-changeset
