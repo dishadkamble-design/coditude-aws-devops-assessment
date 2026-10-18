@@ -1,0 +1,86 @@
+name: Deploy Application to EC2
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ec2-deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - name: Start EC2 rolling application deployment
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          ASG_NAME="${ENVIRONMENT}-coditude-ec2-asg"
+
+          aws autoscaling describe-auto-scaling-groups \
+            --auto-scaling-group-names "$ASG_NAME" \
+            --query 'AutoScalingGroups[0].AutoScalingGroupName' \
+            --output text | grep -Fx "$ASG_NAME"
+
+          aws autoscaling start-instance-refresh \
+            --auto-scaling-group-name "$ASG_NAME" \
+            --preferences '{
+              "MinHealthyPercentage": 50,
+              "InstanceWarmup": 300,
+              "SkipMatching": false
+            }'
+
+      - name: Wait for EC2 rolling deployment
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          ASG_NAME="${ENVIRONMENT}-coditude-ec2-asg"
+
+          for ATTEMPT in $(seq 1 60); do
+            STATUS=$(aws autoscaling describe-instance-refreshes \
+              --auto-scaling-group-name "$ASG_NAME" \
+              --query 'InstanceRefreshes[0].Status' \
+              --output text)
+
+            echo "Instance refresh status: $STATUS"
+
+            case "$STATUS" in
+              Successful)
+                echo "EC2 rolling deployment completed."
+                exit 0
+                ;;
+              Failed|Cancelled|RollbackFailed|RollbackSuccessful)
+                echo "ERROR: EC2 rolling deployment did not succeed."
+                exit 1
+                ;;
+            esac
+
+            sleep 30
+          done
+
+          echo "ERROR: Timed out waiting for EC2 deployment."
+          exit 1
+

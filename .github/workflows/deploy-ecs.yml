@@ -107,7 +107,22 @@ jobs:
           echo "FRONTEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
       
+      - name: Check whether ECS services exist
+        id: ecs_check
+        run: |
+          if aws ecs describe-services \
+            --cluster "$ENVIRONMENT-coditude-cluster" \
+            --services "$ENVIRONMENT-coditude-backend" "$ENVIRONMENT-coditude-frontend" \
+            --query 'length(services[?status==`ACTIVE`])' \
+            --output text | grep -qx 2; then
+            echo "services_exist=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "services_exist=false" >> "$GITHUB_OUTPUT"
+            echo "ECS services not created yet. Images pushed for initial infrastructure deployment."
+          fi
+
       - name: Deploy backend to ECS
+        if: steps.ecs_check.outputs.services_exist == 'true'
         env:
           IMAGE: ${{ env.BACKEND_IMAGE }}
         run: |
@@ -135,6 +150,7 @@ jobs:
             --services "$ENVIRONMENT-coditude-backend"
 
       - name: Deploy frontend to ECS
+        if: steps.ecs_check.outputs.services_exist == 'true'
         env:
           IMAGE: ${{ env.FRONTEND_IMAGE }}
         run: |
@@ -160,3 +176,4 @@ jobs:
           aws ecs wait services-stable \
             --cluster "$ENVIRONMENT-coditude-cluster" \
             --services "$ENVIRONMENT-coditude-frontend"
+

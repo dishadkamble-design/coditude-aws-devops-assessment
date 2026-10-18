@@ -170,3 +170,19 @@ Runtime deployment verification remains pending.
 - [Continuous Integration](.github/workflows/ci.yml) — Application build checks and CloudFormation validation.
 - [ECS Application Deployment](.github/workflows/deploy-ecs.yml) — Manual ECS container deployment workflow.
 - [Infrastructure Validation Workflow](.github/workflows/deploy-infra.yml) — Manual CloudFormation validation and AWS identity verification; actual stack deployment is not implemented.
+
+### EC2 Application Deployment
+
+- `.github/workflows/deploy-ec2.yml` manually starts an EC2 Auto Scaling Instance Refresh.
+- The workflow waits for the refresh result and reports failure if the refresh fails.
+- Application changes do not redeploy the CloudFormation infrastructure stack.
+- New EC2 instances fetch application code during bootstrap.
+- Deployment currently uses the repository main branch rather than an immutable commit.
+- Live AWS deployment, application health verification, and automatic rollback have not been tested.
+
+### Initial ECS Deployment
+
+- Run the ECS application workflow to build and push images to ECR.
+- Deploy the ECS infrastructure after images are available.
+- Subsequent application deployments update ECS services without redeploying infrastructure.
+
