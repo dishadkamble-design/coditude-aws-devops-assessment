@@ -95,6 +95,18 @@ Resources:
     Type: AWS::CodePipeline::Pipeline
     Properties:
       Name: !Sub coditude-backend-pipeline-${Environment}
+      PipelineType: V2
+      Triggers:
+        - ProviderType: CodeStarSourceConnection
+          GitConfiguration:
+            SourceActionName: GitHubSource
+            Push:
+              - Branches:
+                  Includes:
+                    - main
+                FilePaths:
+                  Includes:
+                    - backend/**
       RoleArn: !GetAtt CodePipelineRole.Arn
       ArtifactStore:
         Type: S3
@@ -112,7 +124,7 @@ Resources:
                 ConnectionArn: !Ref GitHubConnectionArn
                 FullRepositoryId: !Sub ${GitHubOwner}/${GitHubRepository}
                 BranchName: !Ref GitHubBranch
-                DetectChanges: true
+                DetectChanges: false
                 OutputArtifactFormat: CODE_ZIP
               OutputArtifacts:
                 - Name: SourceArtifact
