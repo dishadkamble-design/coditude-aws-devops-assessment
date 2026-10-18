@@ -161,15 +161,15 @@ No live AWS resources were deployed, as deployment was not required for this ass
 Runtime deployment verification remains pending.
 ## 8. Additional Documentation
 
-- [AWS Architecture Diagrams](docs/architecture.md) — ECS Fargate and EC2 deployment architectures.
-- [Deployment Rollback and Recovery Guide](docs/rollback.md) — ECS, EC2, CloudFormation, and database recovery procedures.
-- [CloudWatch Monitoring Template](infrastructure/monitoring.yaml) — ALB error alarms, unhealthy backend target alarms, and SNS notifications.
+- [AWS Architecture Diagrams](docs/architecture.md)  -  ECS Fargate and EC2 deployment architectures.
+- [Deployment Rollback and Recovery Guide](docs/rollback.md)  -  ECS, EC2, CloudFormation, and database recovery procedures.
+- [CloudWatch Monitoring Template](infrastructure/monitoring.yaml)  -  ALB error alarms, unhealthy backend target alarms, and SNS notifications.
 
 ### CI/CD Workflows
 
-- [Continuous Integration](.github/workflows/ci.yml) — Application build checks and CloudFormation validation.
-- [ECS Application Deployment](.github/workflows/deploy-ecs.yml) � Automatically triggered by frontend/backend changes; manual deployment also supported.
-- [Infrastructure Deployment Workflow](.github/workflows/deploy-infra.yml) � Manual CloudFormation deployment for dev, staging, and prod; AWS configuration required.
+- [Continuous Integration](.github/workflows/ci.yml)  -  Application build checks and CloudFormation validation.
+- [ECS Application Deployment](.github/workflows/deploy-ecs.yml) — Automatically triggered by frontend/backend changes; manual deployment also supported.
+- [Infrastructure Deployment Workflow](.github/workflows/deploy-infra.yml) — Manual CloudFormation deployment for dev, staging, and prod; AWS configuration required.
 
 ### EC2 Application Deployment
 
