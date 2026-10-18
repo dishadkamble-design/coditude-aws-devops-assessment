@@ -41,6 +41,7 @@ jobs:
         run: cfn-lint -t infrastructure/*.yaml infrastructure/ec2/ec2.yaml infrastructure/cicd/pipeline.yaml -r ap-south-1
 
   deploy:
+    if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
     name: Deploy CloudFormation
     needs: validate
     runs-on: ubuntu-latest
