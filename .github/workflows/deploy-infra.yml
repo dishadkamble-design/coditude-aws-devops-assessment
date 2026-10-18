@@ -59,6 +59,79 @@ jobs:
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
+      - name: Deploy Network CloudFormation stack
+        if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+        run: |
+          aws cloudformation deploy \
+            --template-file infrastructure/network.yaml \
+            --stack-name "${{ inputs.environment }}-coditude-network" \
+            --parameter-overrides Environment="${{ inputs.environment }}" \
+            --no-fail-on-empty-changeset
+
+      - name: Read Network stack VPC ID
+        if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+        id: network
+        run: |
+          VPC_ID=$(aws cloudformation describe-stacks \
+            --stack-name "${{ inputs.environment }}-coditude-network" \
+            --query "Stacks[0].Outputs[?OutputKey=='VpcId'].OutputValue | [0]" \
+            --output text)
+          echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Security CloudFormation stack
+        if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+        run: |
+          aws cloudformation deploy \- name: Deployment instructions
+            --template-file infrastructure/security.yaml \
+            --stack-name "${{ inputs.environment }}-coditude-security" \
+            --parameter-overrides \
+              Environment="${{ inputs.environment }}" \
+              VpcId="${{ steps.network.outputs.vpc_id }}"
+            --no-fail-on-empty-changeset
+
+      - name: Read private subnet IDs
+        if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+        id: subnets
+        run: |
+          for KEY in PrivateSubnetAId PrivateSubnetBId; do
+            VALUE=$(aws cloudformation describe-stacks \
+              --stack-name "${{ inputs.environment }}-coditude-network" \
+              --query "Stacks[0].Outputs[?OutputKey=='${KEY}'].OutputValue | [0]" \
+              --output text)
+            echo "${KEY}=${VALUE}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Read Database Security Group ID
+        if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+        id: db_security
+        run: |
+          DB_SG_ID=$(aws cloudformation describe-stacks \
+            --stack-name "${{ inputs.environment }}-coditude-security" \
+            --query "Stacks[0].Outputs[?OutputKey=='DatabaseSecurityGroupId'].OutputValue | [0]" \
+            --output text)
+          echo "db_sg_id=$DB_SG_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Database CloudFormation stack
+        if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+        run: |
+          aws cloudformation deploy \
+            --template-file infrastructure/database.yaml \
+            --stack-name "${{ inputs.environment }}-coditude-database" \
+            --parameter-overrides \
+              Environment="${{ inputs.environment }}" \
+              PrivateSubnetAId="${{ steps.subnets.outputs.PrivateSubnetAId }}" \
+              PrivateSubnetBId="${{ steps.subnets.outputs.PrivateSubnetBId }}" \
+              DatabaseSecurityGroupId="${{ steps.db_security.outputs.db_sg_id }}" \
+            --no-fail-on-empty-changeset
+
+      - name: Deploy ECR CloudFormation stack
+        if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+        run: |
+          aws cloudformation deploy \
+            --template-file infrastructure/ecr.yaml \
+            --stack-name "coditude-ecr" \
+            --no-fail-on-empty-changeset
+
       - name: Deployment instructions
         run: |
           echo "CloudFormation validation completed."
