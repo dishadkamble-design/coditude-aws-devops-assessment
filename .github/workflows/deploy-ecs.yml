@@ -2,12 +2,12 @@
 name: Deploy Application to ECS
 
 on:
-  # push:
-  #  branches:
-  #    - main
-  #  paths:
-  #    - 'frontend/**'
-  #    - 'backend/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
   workflow_dispatch:
     inputs:
       environment:
@@ -62,6 +62,7 @@ jobs:
           NEXT_PUBLIC_API_URL: http://localhost:8000
   deploy:
     needs: validate
+    if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
     name: Build and Deploy ECS
     runs-on: ubuntu-latest
     environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'dev' }}
