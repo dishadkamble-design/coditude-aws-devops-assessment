@@ -53,7 +53,14 @@ The EC2 bootstrap script installs dependencies, configures the frontend and back
 GitHub Actions workflows are available in `.github/workflows/`.
 
 - `ci.yml` - Application and infrastructure validation
-- `deploy-ecs.yml` - ECS deployment workflow configuration
+- `deploy-ecs.yml` - Build, push, and deploy frontend/backend Docker images to ECS
+- `deploy-infra.yml` - Manual CloudFormation deployment for dev, staging, and prod
+- `infrastructure/cicd/pipeline.yaml` - AWS CodePipeline + CodeBuild for backend ECS deployment
+- `infrastructure/monitoring.yaml` - CloudWatch alarms and SNS notifications
+
+Infrastructure deployment is controlled by the `AWS_DEPLOY_ENABLED` GitHub repository variable. AWS credentials, ACM certificate, CodeConnections ARN, artifact bucket, and alert email must be configured before deployment.
+
+**Note:** ECS requires existing images in ECR before its initial CloudFormation deployment. AWS deployment has not been tested live.
 
 AWS deployment requires appropriate IAM permissions, repository configuration, and AWS infrastructure resources.
 
