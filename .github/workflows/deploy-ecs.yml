@@ -60,6 +60,7 @@ jobs:
         run: npm run build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
+
   deploy:
     needs: validate
     if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
@@ -74,14 +75,45 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE="$REGISTRY/coditude-backend:$GITHUB_SHA"
+          docker build -t "$IMAGE" ./backend
+          docker push "$IMAGE"
+          echo "BACKEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Build and push frontend image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          API_URL: ""
+        run: |
+          IMAGE="$REGISTRY/coditude-frontend:$GITHUB_SHA"
+          docker build \
+            --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
+            -t "$IMAGE" ./frontend
+          docker push "$IMAGE"
+          echo "FRONTEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
       - name: Check whether ECS services exist
         id: ecs_check
         run: |
           if aws ecs describe-services \
             --cluster "$ENVIRONMENT-coditude-cluster" \
             --services "$ENVIRONMENT-coditude-backend" "$ENVIRONMENT-coditude-frontend" \
-            --query 'length(services[?status==ACTIVE])' \
+            --query 'length(services[?status==`ACTIVE`])' \
             --output text | grep -qx 2; then
             echo "services_exist=true" >> "$GITHUB_OUTPUT"
           else
@@ -144,4 +176,3 @@ jobs:
           aws ecs wait services-stable \
             --cluster "$ENVIRONMENT-coditude-cluster" \
             --services "$ENVIRONMENT-coditude-frontend"
-
