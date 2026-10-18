@@ -51,6 +51,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Validate ACM certificate configuration
+        run: |
+          if [ -z "$CERTIFICATE_ARN" ]; then
+            echo "ERROR: ACM_CERTIFICATE_ARN GitHub environment variable is required."
+            exit 1
+          fi
+        env:
+          CERTIFICATE_ARN: ${{ vars.ACM_CERTIFICATE_ARN }}
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -90,11 +99,11 @@ jobs:
               VpcId="${{ steps.network.outputs.vpc_id }}"
             --no-fail-on-empty-changeset
 
-      - name: Read private subnet IDs
+      - name: Read public and private subnet IDs
         if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
         id: subnets
         run: |
-          for KEY in PrivateSubnetAId PrivateSubnetBId; do
+          for KEY in PublicSubnetAId PublicSubnetBId PrivateSubnetAId PrivateSubnetBId; do
             VALUE=$(aws cloudformation describe-stacks \
               --stack-name "${{ inputs.environment }}-coditude-network" \
               --query "Stacks[0].Outputs[?OutputKey=='${KEY}'].OutputValue | [0]" \
@@ -133,10 +142,101 @@ jobs:
             --stack-name "coditude-ecr" \
             --no-fail-on-empty-changeset
 
-      - name: Deployment instructions
+      - name: Read ECS Security Group IDs
+        if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+        id: ecs_security
         run: |
-          echo "CloudFormation validation completed."
-          echo "Target environment: ${{ inputs.environment }}"
-          echo "Infrastructure deployment requires stack parameters,"
-          echo "dependency ordering, and AWS resource configuration."
-          echo "No CloudFormation stacks are changed by this workflow."
+          for KEY in LoadBalancerSecurityGroupId FrontendSecurityGroupId BackendSecurityGroupId; do
+            VALUE=$(aws cloudformation describe-stacks \
+              --stack-name "${{ inputs.environment }}-coditude-security" \
+              --query "Stacks[0].Outputs[?OutputKey=='${KEY}'].OutputValue | [0]" \
+              --output text)
+            echo "${KEY}=${VALUE}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Read ECS Database Outputs
+        if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+        id: ecs_database
+        run: |
+          for KEY in DatabaseEndpoint DatabaseSecretArn; do
+            VALUE=$(aws cloudformation describe-stacks \
+              --stack-name "${{ inputs.environment }}-coditude-database" \
+              --query "Stacks[0].Outputs[?OutputKey=='${KEY}'].OutputValue | [0]" \
+              --output text)
+            echo "${KEY}=${VALUE}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Read ECR Repository URIs
+        if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+        id: ecr
+        run: |
+          for KEY in FrontendRepositoryUri BackendRepositoryUri; do
+            VALUE=$(aws cloudformation describe-stacks \
+              --stack-name "coditude-ecr" \
+              --query "Stacks[0].Outputs[?OutputKey=='${KEY}'].OutputValue | [0]" \
+              --output text)
+            echo "${KEY}=${VALUE}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Verify ECS images exist in ECR
+        if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+        run: |
+          for REPO in coditude-frontend coditude-backend; do
+            aws ecr describe-images \
+              --repository-name "$REPO" \
+              --query 'imageDetails[0].imageDigest' \
+              --output text |
+              grep -q '^sha256:' || {
+                echo "ERROR: No Docker image found in $REPO"
+                exit 1
+              }
+          done
+
+      - name: Resolve ECS image URIs
+        if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+        id: images
+        run: |
+          for COMPONENT in frontend backend; do
+            REPO="coditude-${COMPONENT}"
+            TAG=$(aws ecr describe-images \
+              --repository-name "$REPO" \
+              --query 'reverse(sort_by(imageDetails[?imageTags != `null`], &imagePushedAt))[0].imageTags[0]' \
+              --output text)
+
+            if [ -z "$TAG" ] || [ "$TAG" = "None" ]; then
+              echo "ERROR: No tagged image found in $REPO"
+              exit 1
+            fi
+
+            if [ "$COMPONENT" = "frontend" ]; then
+              echo "FRONTEND_IMAGE=${{ steps.ecr.outputs.FrontendRepositoryUri }}:$TAG" >> "$GITHUB_OUTPUT"
+            else
+              echo "BACKEND_IMAGE=${{ steps.ecr.outputs.BackendRepositoryUri }}:$TAG" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
+      - name: Deploy ECS CloudFormation stack
+        if: ${{ vars.AWS_DEPLOY_ENABLED == 'true' }}
+        env:
+          CERTIFICATE_ARN: ${{ vars.ACM_CERTIFICATE_ARN }}
+        run: |
+          aws cloudformation deploy \
+            --template-file infrastructure/ecs.yaml \
+            --stack-name "${{ inputs.environment }}-coditude-ecs" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              Environment="${{ inputs.environment }}" \
+              VpcId="${{ steps.network.outputs.vpc_id }}" \
+              PublicSubnetAId="${{ steps.subnets.outputs.PublicSubnetAId }}" \
+              PublicSubnetBId="${{ steps.subnets.outputs.PublicSubnetBId }}" \
+              PrivateSubnetAId="${{ steps.subnets.outputs.PrivateSubnetAId }}" \
+              PrivateSubnetBId="${{ steps.subnets.outputs.PrivateSubnetBId }}" \
+              LoadBalancerSecurityGroupId="${{ steps.ecs_security.outputs.LoadBalancerSecurityGroupId }}" \
+              FrontendSecurityGroupId="${{ steps.ecs_security.outputs.FrontendSecurityGroupId }}" \
+              BackendSecurityGroupId="${{ steps.ecs_security.outputs.BackendSecurityGroupId }}" \
+              FrontendImage="${{ steps.images.outputs.FRONTEND_IMAGE }}" \
+              BackendImage="${{ steps.images.outputs.BACKEND_IMAGE }}" \
+              DatabaseEndpoint="${{ steps.ecs_database.outputs.DatabaseEndpoint }}" \
+              DatabaseSecretArn="${{ steps.ecs_database.outputs.DatabaseSecretArn }}" \
+              CertificateArn="$CERTIFICATE_ARN" \
+            --no-fail-on-empty-changeset
