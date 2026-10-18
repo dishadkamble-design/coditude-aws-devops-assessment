@@ -1,4 +1,3 @@
-
 name: CI - Build and Validate
 
 on:
@@ -29,7 +28,7 @@ jobs:
 
       - name: Check Python syntax
         run: python -m compileall -q backend
-
+		
       - name: Configure AWS credentials using OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -109,9 +108,6 @@ jobs:
 
       - name: Install cfn-lint
         run: pip install cfn-lint
-
-      - name: Validate CloudFormation templates
-        run: cfn-lint -t infrastructure/*.yaml infrastructure/ec2/ec2.yaml infrastructure/cicd/pipeline.yaml -r ap-south-1
 
       - name: Validate CloudFormation templates
         run: cfn-lint -t infrastructure/*.yaml infrastructure/ec2/ec2.yaml infrastructure/cicd/pipeline.yaml -r ap-south-1
