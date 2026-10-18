@@ -29,6 +29,26 @@ jobs:
 
       - name: Check Python syntax
         run: python -m compileall -q backend
+		
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE="$REGISTRY/coditude-backend:$GITHUB_SHA"
+          docker build -t "$IMAGE" ./backend
+          docker push "$IMAGE"
+          echo "BACKEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+		  
 
   frontend-check:
     name: Frontend Build
@@ -52,6 +72,28 @@ jobs:
         run: npm run build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
+		  
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push frontend image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          API_URL: ""
+        run: |
+          IMAGE="$REGISTRY/coditude-frontend:$GITHUB_SHA"
+          docker build \
+            --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
+            -t "$IMAGE" ./frontend
+          docker push "$IMAGE"
+          echo "FRONTEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
   infrastructure-check:
     name: CloudFormation Validation
@@ -67,6 +109,9 @@ jobs:
 
       - name: Install cfn-lint
         run: pip install cfn-lint
+
+      - name: Validate CloudFormation templates
+        run: cfn-lint -t infrastructure/*.yaml infrastructure/ec2/ec2.yaml infrastructure/cicd/pipeline.yaml -r ap-south-1
 
       - name: Validate CloudFormation templates
         run: cfn-lint -t infrastructure/*.yaml infrastructure/ec2/ec2.yaml infrastructure/cicd/pipeline.yaml -r ap-south-1
