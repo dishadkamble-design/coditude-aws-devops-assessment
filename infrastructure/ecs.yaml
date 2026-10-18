@@ -267,3 +267,10 @@ Outputs:
 
   ECSClusterName:
     Value: !Ref ECSCluster
+  LoadBalancerFullName:
+    Description: ALB identifier for CloudWatch metrics
+    Value: !GetAtt ApplicationLoadBalancer.LoadBalancerFullName
+
+  BackendTargetGroupFullName:
+    Description: Backend target group identifier for CloudWatch metrics
+    Value: !GetAtt BackendTargetGroup.TargetGroupFullName
