@@ -240,3 +240,69 @@ jobs:
               DatabaseSecretArn="${{ steps.ecs_database.outputs.DatabaseSecretArn }}" \
               CertificateArn="$CERTIFICATE_ARN" \
             --no-fail-on-empty-changeset
+
+      - name: Resolve Amazon Linux 2023 AMI
+        id: ec2_ami
+        run: |
+          AMI_ID=$(aws ssm get-parameter \
+            --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 \
+            --query Parameter.Value \
+            --output text)
+
+          echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy EC2 CloudFormation stack
+        env:
+          CERTIFICATE_ARN: ${{ vars.ACM_CERTIFICATE_ARN }}
+        run: |
+          aws cloudformation deploy \
+            --template-file infrastructure/ec2/ec2.yaml \
+            --stack-name "${{ inputs.environment }}-coditude-ec2" \
+            --capabilities CAPABILITY_IAM \
+            --parameter-overrides \
+              Environment="${{ inputs.environment }}" \
+              VpcId="${{ steps.network.outputs.vpc_id }}" \
+              PublicSubnetAId="${{ steps.subnets.outputs.PublicSubnetAId }}" \
+              PublicSubnetBId="${{ steps.subnets.outputs.PublicSubnetBId }}" \
+              DatabaseSecurityGroupId="${{ steps.db_security.outputs.db_sg_id }}" \
+              DatabaseSecretArn="${{ steps.ecs_database.outputs.DatabaseSecretArn }}" \
+              DatabaseEndpoint="${{ steps.ecs_database.outputs.DatabaseEndpoint }}" \
+              CertificateArn="$CERTIFICATE_ARN" \
+              AmiId="${{ steps.ec2_ami.outputs.ami_id }}" \
+            --no-fail-on-empty-changeset
+
+      - name: Read ECS Monitoring Outputs
+        id: monitoring_outputs
+        run: |
+          for KEY in LoadBalancerFullName BackendTargetGroupFullName; do
+            VALUE=$(aws cloudformation describe-stacks \
+              --stack-name "${{ inputs.environment }}-coditude-ecs" \
+              --query "Stacks[0].Outputs[?OutputKey=='${KEY}'].OutputValue | [0]" \
+              --output text)
+
+            if [ -z "$VALUE" ] || [ "$VALUE" = "None" ]; then
+              echo "ERROR: Missing ECS output $KEY"
+              exit 1
+            fi
+
+            echo "${KEY}=${VALUE}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Deploy Monitoring CloudFormation stack
+        env:
+          ALERT_EMAIL: ${{ vars.ALERT_EMAIL }}
+        run: |
+          if [ -z "$ALERT_EMAIL" ]; then
+            echo "ERROR: ALERT_EMAIL GitHub environment variable is required."
+            exit 1
+          fi
+
+          aws cloudformation deploy \
+            --template-file infrastructure/monitoring.yaml \
+            --stack-name "${{ inputs.environment }}-coditude-monitoring" \
+            --parameter-overrides \
+              Environment="${{ inputs.environment }}" \
+              LoadBalancerFullName="${{ steps.monitoring_outputs.outputs.LoadBalancerFullName }}" \
+              TargetGroupFullName="${{ steps.monitoring_outputs.outputs.BackendTargetGroupFullName }}" \
+              AlertEmail="$ALERT_EMAIL" \
+            --no-fail-on-empty-changeset
