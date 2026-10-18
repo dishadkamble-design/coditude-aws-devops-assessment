@@ -1,3 +1,4 @@
+
 name: CI - Build and Validate
 
 on:
@@ -10,10 +11,17 @@ on:
 permissions:
   contents: read
 
+env:
+  AWS_REGION: ap-south-1
+
 jobs:
   backend-check:
     name: Backend Validation
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -28,14 +36,16 @@ jobs:
 
       - name: Check Python syntax
         run: python -m compileall -q backend
-		
+
       - name: Configure AWS credentials using OIDC
+        if: ${{ github.event_name != 'pull_request' && vars.AWS_DEPLOY_ENABLED == 'true' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
+        if: ${{ github.event_name != 'pull_request' && vars.AWS_DEPLOY_ENABLED == 'true' }}
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
@@ -43,18 +53,32 @@ jobs:
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          IMAGE="$REGISTRY/coditude-backend:$GITHUB_SHA"
+          if [ -n "$REGISTRY" ]; then
+            IMAGE="$REGISTRY/coditude-backend:$GITHUB_SHA"
+          else
+            IMAGE="coditude-backend:ci"
+          fi
+
           docker build -t "$IMAGE" ./backend
-          docker push "$IMAGE"
-          echo "BACKEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
-		  
+
+          if [ -n "$REGISTRY" ]; then
+            docker push "$IMAGE"
+            echo "BACKEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          else
+            echo "AWS deployment disabled. Backend image built locally."
+          fi
 
   frontend-check:
     name: Frontend Build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
     defaults:
       run:
         working-directory: frontend
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -71,14 +95,16 @@ jobs:
         run: npm run build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
-		  
+
       - name: Configure AWS credentials using OIDC
+        if: ${{ github.event_name != 'pull_request' && vars.AWS_DEPLOY_ENABLED == 'true' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
+        if: ${{ github.event_name != 'pull_request' && vars.AWS_DEPLOY_ENABLED == 'true' }}
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
@@ -87,16 +113,27 @@ jobs:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           API_URL: ""
         run: |
-          IMAGE="$REGISTRY/coditude-frontend:$GITHUB_SHA"
+          if [ -n "$REGISTRY" ]; then
+            IMAGE="$REGISTRY/coditude-frontend:$GITHUB_SHA"
+          else
+            IMAGE="coditude-frontend:ci"
+          fi
+
           docker build \
             --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
-            -t "$IMAGE" ./frontend
-          docker push "$IMAGE"
-          echo "FRONTEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+            -t "$IMAGE" .
+
+          if [ -n "$REGISTRY" ]; then
+            docker push "$IMAGE"
+            echo "FRONTEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          else
+            echo "AWS deployment disabled. Frontend image built locally."
+          fi
 
   infrastructure-check:
     name: CloudFormation Validation
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
